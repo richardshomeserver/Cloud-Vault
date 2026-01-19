@@ -1,0 +1,234 @@
+You are building a complete, runnable full-stack web app INSIDE THIS REPLIT WORKSPACE.
+
+PRIVACY + SECURITY FIRST (HARD REQUIREMENTS)
+- No third-party analytics, trackers, CDNs, external fonts, or telemetry of any kind.
+- No outbound network calls from the server except optional update checks (disabled by default).
+- Collect the minimum user data: email + password hash (and optional display name). Nothing else.
+- Logs must not store file names, search queries, or personal data unless explicitly enabled in config.
+- All security-sensitive settings must be configurable in includes/config.php.
+
+ENCRYPTION REQUIREMENTS (CHOOSE DEFAULTS IF NOT PROVIDED)
+- At-rest file encryption: implement optional encryption for files stored under /storage/uploads using libsodium (preferred) or OpenSSL.
+  - If enabled, store encrypted bytes on disk and keep only non-sensitive metadata in DB.
+  - Use a per-user encryption key derived from a server master key + user salt (do NOT store plaintext keys in DB).
+  - Provide a key-rotation plan note in README.
+- Passwords: password_hash/password_verify (Argon2id if available; else bcrypt).
+- Tokens: API tokens must be random (cryptographically secure), hashed in DB (store only a hash), and rotated/revocable.
+
+TRANSPORT SECURITY
+- Assume HTTPS in production; in Replit local dev HTTP is acceptable.
+- Add security headers on all responses (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy).
+- Cookies: HttpOnly, SameSite=Strict/Lax, Secure when HTTPS.
+
+ACCESS CONTROL (MANDATORY)
+- Every endpoint must enforce ownership checks (including download).
+- Prevent IDOR: never allow user_id to be provided by clients; infer from session/token.
+- Rate limit login and API calls (lightweight SQLite-based limiter is fine).
+- Brute force protection: incremental backoff/lockout on repeated login failures.
+
+INPUT/UPLOAD SAFETY
+- Validate file sizes and enforce limits.
+- Validate MIME types and extensions server-side.
+- Store uploads with randomized filenames; never trust user filenames for paths.
+- Prevent path traversal everywhere.
+- Avoid dangerous file execution: ensure uploaded files are not executable and are served only through download.php with safe Content-Disposition.
+
+DATA MINIMIZATION + USER CONTROL
+- Add user actions: rotate API token, revoke sessions, delete account (with safe confirmation).
+- Provide “export my data” endpoint (metadata export JSON; file export can be a ZIP job placeholder).
+- Trash is soft-delete; permanent deletion done via background cleanup job.
+
+AUDIT LOG PRIVACY
+- audit_log is optional and OFF by default.
+- If enabled, it stores action type + item_id + timestamps only (no filenames, no queries).
+
+GOAL
+Build a high-performance “cloud gallery” web app similar (but not identical) to Google Drive. It must support fast loading, searching, caching, syncing with a mobile app, and multiple users. The system must be designed to scale to tens of thousands of files per user without changing the API or database schema.
+
+IMPORTANT BEHAVIOR
+1) Before generating code, ask me up to 12 clarifying questions you need to avoid guessing (auth, limits, encryption on/off by default, etc.).
+2) If I do not answer, choose sensible defaults and clearly list all assumptions.
+3) Then generate the ENTIRE project: folders, subfolders, and all files with full contents.
+4) Code must run in Replit with a simple “Run” command.
+5) Provide exact steps to initialize and run the app.
+6) Follow secure coding practices and performance-aware design.
+
+DEFAULT TECH STACK (unless I say otherwise)
+- Frontend: HTML + CSS + vanilla JS (no frameworks)
+- Backend: PHP 8.x
+- DB: SQLite (Replit-friendly, with MySQL migration notes)
+- Storage: local filesystem (/storage/uploads)
+- Auth: PHP sessions + password_hash/password_verify
+- API Auth: personal API token per user (for mobile sync)
+- Caching: SQLite + filesystem cache with TTL
+- Background jobs: PHP-based async job runner
+- Search: metadata-based search (filename, tags, notes) with indexing
+- Thumbnails: lazy-generated previews
+
+CORE FEATURES – WEB UI
+A) Drive-like layout (NOT copying Google branding):
+- Left sidebar: My Files, Recent, Starred, Trash, Shared (placeholder)
+- Top bar: search input, upload button, grid/list toggle, sort menu
+- Breadcrumb folder navigation
+- File cards / list rows with icon/thumbnail, name, size, date
+- Context menu: rename, move, delete (trash), restore, download
+- Multi-select with bulk actions
+- Preview/details panel (basic)
+
+B) File & Folder Operations
+- Create folders
+- Upload files to folders
+- Rename, move, delete → trash
+- Restore from trash
+- Download with access checks
+- “Recent” based on last_accessed_at
+
+C) Thumbnails & Previews
+- Generate thumbnails for images (with privacy: no external services)
+- Fallback icons for non-image files
+- Lazy generation on first access
+- Store thumbnail paths in DB
+- Background job for generation
+
+D) Fast Searching
+- Server-side search with pagination
+- Search current folder or entire drive
+- Indexed DB columns
+- Cache frequent searches per user with TTL
+- Cache must not leak sensitive data across users; cache keys must include user_id.
+- Option to disable search query caching entirely in config for privacy.
+
+E) Multi-User System
+- Register / login / logout
+- Each user has isolated root folder
+- Strict access control on every endpoint
+- Soft deletes only (trash system)
+
+F) Mobile Sync API
+Token-based authentication (separate from sessions). Token must be hashed in DB.
+Endpoints:
+- POST /api/auth/login
+- GET /api/sync/changes?since=&cursor=
+- GET /api/files/list?folder_id=&cursor=&limit=
+- GET /api/files/search?q=&scope=&cursor=&limit=
+- POST /api/files/upload
+- POST /api/folders/create
+- POST /api/items/rename
+- POST /api/items/move
+- POST /api/items/trash
+- POST /api/items/restore
+
+API Requirements:
+- JSON responses only
+- Stable item IDs
+- version field increments on every change
+- updated_at timestamps
+- ETag-style version support for caching
+- Cursor-based pagination (NOT offset-only)
+- Clear error format:
+  { ok:false, error:{ code, message } }
+- Do not echo sensitive details in errors.
+
+G) Background Jobs System
+- Table: jobs (id, type, payload, status, created_at)
+- PHP job runner script
+- Jobs for:
+  - Thumbnail generation
+  - File hashing
+  - Cache cleanup
+  - Trash cleanup (permanent delete)
+- Safe to run via cron later
+
+H) File Integrity & Deduplication
+- SHA256 hash on upload
+- Store hash in DB
+- Optional per-user deduplication
+- Integrity validation hook
+
+I) Caching Strategy
+- Metadata cache (filesystem or SQLite)
+- Search result cache (per-user, TTL)
+- Cache invalidation on writes
+- Clear separation of cache logic
+- Provide config to disable caching of search queries for privacy.
+
+J) Versioning & Sync Rules
+- DB is source of truth for metadata
+- Filesystem is source of truth for file bytes
+- Soft deletes only
+- version increments on:
+  - rename
+  - move
+  - upload overwrite
+  - metadata changes
+- Sync trusts server timestamps
+- Conflicts are detectable (even if not fully resolved yet)
+
+DATABASE SCHEMA (minimum)
+- users (id, email, password_hash, api_token_hash, created_at, enc_salt)
+- items (
+    id, user_id, parent_id, type[file|folder],
+    name, storage_path, mime, size, hash,
+    starred, trashed,
+    created_at, updated_at, last_accessed_at,
+    version, thumbnail_path,
+    is_encrypted
+  )
+- search_cache (id, user_id, query_hash, scope, result_json, expires_at)
+- jobs (id, type, payload, status, created_at)
+- audit_log (optional/off by default)
+
+PROJECT STRUCTURE (must follow closely)
+/
+  public/
+    index.php
+    login.php
+    register.php
+    logout.php
+    download.php
+    assets/
+      css/
+        app.css
+      js/
+        app.js
+        api.js
+        ui.js
+        upload.js
+        cache.js
+  includes/
+    config.php
+    db.php
+    auth.php
+    header.php
+    footer.php
+    csrf.php
+    helpers.php
+    storage.php
+    security_headers.php
+    rate_limit.php
+    crypto.php
+  api/
+    index.php
+    auth.php
+    files.php
+    folders.php
+    sync.php
+  storage/
+    uploads/
+    thumbnails/
+  scripts/
+    init_db.php
+    job_runner.php
+    seed_data.php
+  database/
+    app.sqlite
+  README.md
+
+DELIVERABLES
+1) Ask clarifying questions first.
+2) Then generate ALL files with full contents, clearly separated by file path.
+3) Provide exact Replit run instructions.
+4) Include a short “What to edit first” checklist.
+5) Include notes on: migrating storage to S3/R2, DB to MySQL, enabling HTTPS reverse proxy, and key rotation.
+
+Start by asking your clarifying questions now.
